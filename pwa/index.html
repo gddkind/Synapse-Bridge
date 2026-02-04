@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Ableton Controller</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
+    <style>
+        body {
+            background-color: #1a1a1a;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            overscroll-behavior: none;
+        }
+
+        .container {
+            display: grid;
+            gap: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: #2d2d2d;
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        h2 {
+            margin: 0 0 15px 0;
+            color: #00ffcc;
+            font-size: 1.2rem;
+        }
+
+        .slider-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+            color: #aaa;
+        }
+
+        input[type=range] {
+            width: 100%;
+            height: 30px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: transparent;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 24px;
+            width: 24px;
+            border-radius: 50%;
+            background: #00ffcc;
+            margin-top: -10px;
+            box-shadow: 0 0 10px rgba(0, 255, 204, 0.5);
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            background: #444;
+            border-radius: 2px;
+        }
+
+        .visualizer {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            height: 60px;
+        }
+
+        .viz-pad {
+            background: #333;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: #555;
+            transition: all 0.05s;
+        }
+
+        .viz-pad.active {
+            background: #00ffcc;
+            color: #000;
+            box-shadow: 0 0 15px #00ffcc;
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <!-- New MIDI Config Card -->
+        <div class="card">
+            <h2>⚙️ Config</h2>
+            <label>MIDI Output:</label>
+            <select id="midi-select" onchange="changeMidiPort(this.value)"
+                style="width:100%; height:30px; background:#444; color:white; border:none; padding:5px;">
+                <option>Loading...</option>
+            </select>
+        </div>
+
+        <div class="card">
+            <h2>🥁 Grids Control</h2>
+
+            <button id="btn-play" onclick="togglePlay()" style="
+                width: 100%; 
+                padding: 15px; 
+                margin-bottom: 20px; 
+                border: none; 
+                border-radius: 8px; 
+                background: #00ffcc; 
+                color: #000; 
+                font-size: 1.2rem; 
+                font-weight: bold; 
+                cursor: pointer;
+                transition: all 0.2s;
+            ">▶ PLAY</button>
+
+            <div class="slider-group">
+                <label>Map X: <span id="val-map_x">0.50</span></label>
+                <input type="range" min="0" max="1" step="0.01" value="0.5" oninput="updateVal('map_x', this.value)">
+            </div>
+
+            <div class="slider-group">
+                <label>Map Y: <span id="val-map_y">0.50</span></label>
+                <input type="range" min="0" max="1" step="0.01" value="0.5" oninput="updateVal('map_y', this.value)">
+            </div>
+
+            <div class="slider-group">
+                <label>Chaos / Send A: <span id="val-chaos">0.00</span></label>
+                <input type="range" min="0" max="1" step="0.01" value="0" oninput="updateVal('chaos', this.value)">
+            </div>
+
+            <hr style="border: 0; border-top: 1px solid #444; margin: 15px 0;">
+
+            <div class="slider-group">
+                <label>BD Density: <span id="val-density_0">0.50</span></label>
+                <input type="range" min="0" max="1" step="0.01" value="0.5"
+                    oninput="updateVal('density_0', this.value)">
+            </div>
+
+            <div class="slider-group">
+                <label>SD Density: <span id="val-density_1">0.50</span></label>
+                <input type="range" min="0" max="1" step="0.01" value="0.5"
+                    oninput="updateVal('density_1', this.value)">
+            </div>
+
+            <div class="slider-group">
+                <label>HH Density: <span id="val-density_2">0.50</span></label>
+                <input type="range" min="0" max="1" step="0.01" value="0.5"
+                    oninput="updateVal('density_2', this.value)">
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>👀 Visualizer</h2>
+            <div class="visualizer">
+                <div id="pad-0" class="viz-pad">BD</div>
+                <div id="pad-1" class="viz-pad">SD</div>
+                <div id="pad-2" class="viz-pad">HH</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+
+        socket.on('connect', () => {
+            console.log("Connected to Python");
+        });
+
+        socket.on('midi_ports', (data) => {
+            const sel = document.getElementById('midi-select');
+            sel.innerHTML = '';
+            data.ports.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p;
+                opt.text = p;
+                if (p === data.current) opt.selected = true;
+                sel.appendChild(opt);
+            });
+        });
+
+        socket.on('status', (data) => {
+            // Optional toast message
+            console.log(data.msg);
+        });
+
+        socket.on('trigger', (data) => {
+            flashPad(data.instrument);
+        });
+
+        // Atualiza UI e Envia comando
+        function updateVal(param, value) {
+            // Atualiza número na tela
+            const label = document.getElementById('val-' + param);
+            if (label) label.innerText = parseFloat(value).toFixed(2);
+
+            // Envia pro server
+            socket.emit('control', { param: param, value: value });
+        }
+
+        function changeMidiPort(portName) {
+            socket.emit('set_midi_port', { port: portName });
+        }
+
+        function flashPad(id) {
+            const pad = document.getElementById('pad-' + id);
+            if (pad) {
+                pad.classList.add('active');
+                setTimeout(() => pad.classList.remove('active'), 100);
+            }
+        }
+
+        function togglePlay() {
+            socket.emit('toggle_play', {});
+        }
+
+        socket.on('play_state', (data) => {
+            const btn = document.getElementById('btn-play');
+            if (data.is_playing) {
+                btn.innerText = "⏸ STOP";
+                btn.style.background = "#ff4d4d";
+                btn.style.boxShadow = "0 0 15px #ff4d4d";
+            } else {
+                btn.innerText = "▶ PLAY";
+                btn.style.background = "#00ffcc";
+                btn.style.boxShadow = "0 0 10px #00ffcc";
+            }
+        });
+
+        socket.on('state_sync', (state) => {
+            // Update Play Button
+            const btn = document.getElementById('btn-play');
+            if (state.is_playing) {
+                btn.innerText = "⏸ STOP";
+                btn.style.background = "#ff4d4d";
+                btn.style.boxShadow = "0 0 15px #ff4d4d";
+            } else {
+                btn.innerText = "▶ PLAY";
+                btn.style.background = "#00ffcc";
+                btn.style.boxShadow = "0 0 10px #00ffcc";
+            }
+
+            // Update Sliders
+            const inputs = ['map_x', 'map_y', 'chaos', 'density_0', 'density_1', 'density_2'];
+            inputs.forEach(p => {
+                const el = document.querySelector(`input[oninput="updateVal('${p}', this.value)"]`);
+                if (el && state[p] !== undefined) {
+                    el.value = state[p];
+                    const label = document.getElementById('val-' + p);
+                    if (label) label.innerText = parseFloat(state[p]).toFixed(2);
+                }
+            });
+        });
+
+        // Mouse Wheel Support
+        document.querySelectorAll('input[type=range]').forEach(input => {
+            input.addEventListener('wheel', (e) => {
+                e.preventDefault(); // Impede o scroll da página
+
+                // Ajusta sensibilidade
+                const step = parseFloat(input.step) || 0.01;
+                const direction = e.deltaY < 0 ? 1 : -1;
+                const multiplier = 5; // Acelera um pouco
+
+                let val = parseFloat(input.value);
+                val += direction * step * multiplier;
+
+                // Respeita min/max
+                val = Math.max(parseFloat(input.min), Math.min(parseFloat(input.max), val));
+
+                input.value = val;
+
+                // Envia o comando (simula o evento 'input' que chama o send())
+                input.dispatchEvent(new Event('input'));
+            });
+        });
+    </script>
+</body>
+
+</html>

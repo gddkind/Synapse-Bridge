@@ -1,0 +1,19 @@
+# Ignorar binários gigantes
+Installers/*.zip
+*.exe
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+venv/
+.env
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Ableton
+*.als
+*.asd
